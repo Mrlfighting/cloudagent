@@ -1,51 +1,45 @@
 -- ==========================================================
--- 云平台用户订单与账单模拟数据初始化脚本
+-- 云平台用户、订单、实例、监控与聊天系统初始化脚本
+-- 字符集统一使用 utf8mb4，避免中文被写成 ????
 -- ==========================================================
 
--- 1. 创建订单表 (如果不存在)
+SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE DATABASE IF NOT EXISTS cloud_platform DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+USE cloud_platform;
+
 CREATE TABLE IF NOT EXISTS cloud_orders (
     order_id VARCHAR(50) PRIMARY KEY COMMENT '订单唯一ID',
     user_id VARCHAR(50) NOT NULL COMMENT '用户ID',
-    product_name VARCHAR(100) NOT NULL COMMENT '产品名称 (如: ecs.g8a.xlarge)',
-    billing_mode VARCHAR(20) NOT NULL COMMENT '计费模式 (包年包月, 按量付费)',
+    product_name VARCHAR(100) NOT NULL COMMENT '产品名称',
+    billing_mode VARCHAR(20) NOT NULL COMMENT '计费模式',
     amount DECIMAL(10, 2) NOT NULL COMMENT '订单金额',
-    status VARCHAR(20) NOT NULL COMMENT '订单状态 (Paid, Unpaid, Refunded)',
+    status VARCHAR(20) NOT NULL COMMENT '订单状态',
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    INDEX idx_user_id (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='云产品订单表';
+    INDEX idx_cloud_orders_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='云产品订单表';
 
--- 2. 清空旧数据 (方便重复测试)
 TRUNCATE TABLE cloud_orders;
-
--- 3. 插入测试数据 (为两个不同的用户生成数据，用于验证权限隔离)
-
--- 用户 user_1001 的数据 (高净值客户，买了企业级实例)
 INSERT INTO cloud_orders (order_id, user_id, product_name, billing_mode, amount, status, created_at) VALUES
 ('ORD-1001-001', 'user_1001', 'ecs.g8a.4xlarge', '包年包月', 12500.00, 'Paid', '2023-10-01 10:00:00'),
 ('ORD-1001-002', 'user_1001', 'rds.mysql.c1.large', '包年包月', 3600.00, 'Paid', '2023-10-05 14:30:00'),
-('ORD-1001-003', 'user_1001', '共享带宽 100Mbps', '按量付费', 150.50, 'Paid', '2023-11-01 08:15:00');
-
--- 用户 user_1002 的数据 (个人开发者，买了便宜的实例)
-INSERT INTO cloud_orders (order_id, user_id, product_name, billing_mode, amount, status, created_at) VALUES
+('ORD-1001-003', 'user_1001', '共享带宽 100Mbps', '按量付费', 150.50, 'Paid', '2023-11-01 08:15:00'),
 ('ORD-1002-001', 'user_1002', 'ecs.c7.large', '按量付费', 45.20, 'Paid', '2023-11-15 09:00:00'),
 ('ORD-1002-002', 'user_1002', '云盘 ESSD PL0 40G', '包年包月', 120.00, 'Paid', '2023-11-15 09:05:00'),
-('ORD-1002-003', 'user_1002', 'ecs.c7.large', '按量付费', 12.80, 'Unpaid', '2023-11-16 10:00:00'); -- 模拟一笔未支付的账单
+('ORD-1002-003', 'user_1002', 'ecs.c7.large', '按量付费', 12.80, 'Unpaid', '2023-11-16 10:00:00');
 
--- 4. 创建资源实例表 (模拟云平台控制台看到的真实机器)
 CREATE TABLE IF NOT EXISTS cloud_instances (
     instance_id VARCHAR(50) PRIMARY KEY COMMENT '实例唯一ID',
     user_id VARCHAR(50) NOT NULL COMMENT '所属用户',
-    order_id VARCHAR(50) NOT NULL COMMENT '关联的购买订单',
+    order_id VARCHAR(50) NOT NULL COMMENT '关联订单',
     instance_type VARCHAR(100) NOT NULL COMMENT '实例规格',
-    region_id VARCHAR(50) NOT NULL COMMENT '所在地域',
-    zone_id VARCHAR(50) NOT NULL COMMENT '所在可用区',
-    status VARCHAR(20) NOT NULL COMMENT '实例运行状态 (Running, Stopped)',
-    public_ip VARCHAR(20) COMMENT '公网 IP',
-    INDEX idx_user_id (user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='云资源实例表';
+    region_id VARCHAR(50) NOT NULL COMMENT '地域',
+    zone_id VARCHAR(50) NOT NULL COMMENT '可用区',
+    status VARCHAR(20) NOT NULL COMMENT '运行状态',
+    public_ip VARCHAR(20) COMMENT '公网IP',
+    INDEX idx_cloud_instances_user_id (user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='云资源实例表';
 
 TRUNCATE TABLE cloud_instances;
-
 INSERT INTO cloud_instances (instance_id, user_id, order_id, instance_type, region_id, zone_id, status, public_ip) VALUES
 ('i-bp1_user1001_ecs', 'user_1001', 'ORD-1001-001', 'ecs.g8a.4xlarge', 'cn-beijing', 'cn-beijing-k', 'Running', '47.100.1.1'),
 ('rm-bp1_user1001_rds', 'user_1001', 'ORD-1001-002', 'rds.mysql.c1.large', 'cn-beijing', 'cn-beijing-l', 'Running', NULL),
@@ -56,15 +50,14 @@ CREATE TABLE IF NOT EXISTS instance_metrics_daily (
     instance_id VARCHAR(50) NOT NULL COMMENT '实例ID',
     user_id VARCHAR(50) NOT NULL COMMENT '所属用户ID',
     metric_date DATE NOT NULL COMMENT '统计日期',
-    avg_cpu_usage_percent DECIMAL(5,2) NOT NULL COMMENT '当日平均CPU利用率',
-    avg_memory_usage_percent DECIMAL(5,2) NOT NULL COMMENT '当日平均内存利用率',
-    max_network_out_mbps DECIMAL(8,2) NOT NULL COMMENT '当日出口带宽峰值(Mbps)',
+    avg_cpu_usage_percent DECIMAL(5,2) NOT NULL COMMENT '平均CPU利用率',
+    avg_memory_usage_percent DECIMAL(5,2) NOT NULL COMMENT '平均内存利用率',
+    max_network_out_mbps DECIMAL(8,2) NOT NULL COMMENT '出口带宽峰值',
     INDEX idx_instance_date (instance_id, metric_date),
     INDEX idx_user_instance (user_id, instance_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='实例日级监控指标表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='实例日级监控指标表';
 
 TRUNCATE TABLE instance_metrics_daily;
-
 INSERT INTO instance_metrics_daily (instance_id, user_id, metric_date, avg_cpu_usage_percent, avg_memory_usage_percent, max_network_out_mbps) VALUES
 ('i-bp1_user1001_ecs', 'user_1001', DATE_SUB(CURDATE(), INTERVAL 6 DAY), 2.10, 18.50, 1.20),
 ('i-bp1_user1001_ecs', 'user_1001', DATE_SUB(CURDATE(), INTERVAL 5 DAY), 2.50, 19.10, 1.60),
@@ -89,7 +82,7 @@ CREATE TABLE IF NOT EXISTS users (
     disabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否禁用',
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='系统用户表';
 
 CREATE TABLE IF NOT EXISTS chat_sessions (
     session_id VARCHAR(80) PRIMARY KEY COMMENT '会话ID',
@@ -100,7 +93,7 @@ CREATE TABLE IF NOT EXISTS chat_sessions (
     deleted_at DATETIME NULL COMMENT '软删除时间',
     INDEX idx_chat_sessions_user_updated (user_id, deleted_at, updated_at),
     CONSTRAINT fk_chat_sessions_user FOREIGN KEY (user_id) REFERENCES users(user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天会话表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='聊天会话表';
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -113,7 +106,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     INDEX idx_chat_messages_user_id (user_id, created_at),
     CONSTRAINT fk_chat_messages_session FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id),
     CONSTRAINT fk_chat_messages_user FOREIGN KEY (user_id) REFERENCES users(user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天消息表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='聊天消息表';
 
 CREATE TABLE IF NOT EXISTS refresh_tokens (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
@@ -125,4 +118,4 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
     INDEX idx_refresh_tokens_user_id (user_id),
     INDEX idx_refresh_tokens_expires_at (expires_at),
     CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='刷新令牌表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='刷新令牌表';
