@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 
 AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agent")
 if AGENT_DIR not in sys.path:
@@ -10,6 +11,7 @@ if AGENT_DIR not in sys.path:
 from core.memory.memory_manager import MemoryManager
 from core.workflow.graph_manager import AgentGraphManager
 from infra.cache import semantic_cache
+from service.agent_trace_service import append_trace_stage, finish_trace, start_trace
 from service.session_service import append_message
 
 graph = None
@@ -74,23 +76,45 @@ def _sse(payload: dict) -> str:
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _duration_ms(started_at: float) -> int:
+    return int((time.perf_counter() - started_at) * 1000)
+
+
+def _route_label(result: dict) -> str:
+    route_agent = result.get("next_agent") or "unknown"
+    metadata = result.get("metadata") or {}
+    if metadata.get("is_finops_workflow"):
+        return "billing_agent->finops_agent"
+    return route_agent
+
+
 async def stream_chat(query: str, user_id: str, session_id: str):
+    started_at = time.perf_counter()
+    trace_id = start_trace(user_id, session_id, query)
+    route_agent = None
+
+    def status_event(status: str, message: str) -> str:
+        append_trace_stage(trace_id, status, message)
+        return _sse({"type": "status", "status": status, "message": message})
+
     try:
         append_message(user_id, session_id, "user", query)
 
-        yield _sse({"type": "status", "status": "thinking", "message": "正在理解问题..."})
+        yield status_event("thinking", "正在理解问题...")
         await asyncio.sleep(0)
 
-        yield _sse({"type": "status", "status": "cache_lookup", "message": "正在检查历史答案..."})
+        yield status_event("cache_lookup", "正在检查历史答案...")
         cache_hit = await semantic_cache.get_cache(query, user_id)
         if cache_hit:
+            route_agent = "semantic_cache"
             response_text = cache_hit["answer"]
+            append_trace_stage(trace_id, "cache_hit", f"命中语义缓存: {cache_hit.get('level', 'unknown')}")
             print(
                 f"[Cache] Hit: {cache_hit['level']} distance={cache_hit['distance']:.4f} matched='{cache_hit['matched_question']}'"
             )
         else:
             print("[Agent] Entering Agent workflow...")
-            yield _sse({"type": "status", "status": "retrieving_context", "message": "正在读取对话历史和用户偏好..."})
+            yield status_event("retrieving_context", "正在读取对话历史和用户偏好...")
             mem_context = await _extract_memory_context(user_id, session_id, query)
             state = {
                 "messages": [("user", query)],
@@ -101,8 +125,10 @@ async def stream_chat(query: str, user_id: str, session_id: str):
                 "metadata": {},
             }
             config = {"configurable": {"user_id": user_id}}
-            yield _sse({"type": "status", "status": "agent_working", "message": "正在思考并查询必要工具..."})
+            yield status_event("agent_working", "正在思考并查询必要工具...")
             result = await graph.ainvoke(state, config=config)
+            route_agent = _route_label(result)
+            append_trace_stage(trace_id, "agent_routed", f"命中 {route_agent}")
             response_text = result["messages"][-1].content
 
         append_message(user_id, session_id, "assistant", response_text)
@@ -114,12 +140,18 @@ async def stream_chat(query: str, user_id: str, session_id: str):
             ]
             await memory.save_conversation(user_id, session_id, turn)
 
-        yield _sse({"type": "status", "status": "streaming", "message": "正在生成回答..."})
+        yield status_event("streaming", "正在生成回答...")
         chunk_size = 5
         for i in range(0, len(response_text), chunk_size):
             yield _sse({"type": "content", "content": response_text[i : i + chunk_size]})
             await asyncio.sleep(0.02)
 
+        finish_trace(
+            trace_id,
+            status="success",
+            route_agent=route_agent,
+            duration_ms=_duration_ms(started_at),
+        )
         yield _sse({"type": "done", "done": True})
     except Exception as exc:
         error_text = f"请求处理失败：{exc}"
@@ -127,4 +159,12 @@ async def stream_chat(query: str, user_id: str, session_id: str):
             append_message(user_id, session_id, "assistant", error_text)
         except Exception:
             pass
+        append_trace_stage(trace_id, "error", error_text)
+        finish_trace(
+            trace_id,
+            status="error",
+            route_agent=route_agent,
+            duration_ms=_duration_ms(started_at),
+            error_message=error_text,
+        )
         yield _sse({"type": "error", "message": error_text})
