@@ -76,7 +76,7 @@ def test_database():
             CREATE TABLE IF NOT EXISTS chat_sessions (
                 session_id VARCHAR(80) PRIMARY KEY,
                 user_id VARCHAR(50) NOT NULL,
-                title VARCHAR(100) NOT NULL DEFAULT '新对话',
+                title VARCHAR(100) NOT NULL DEFAULT 'ÃƒÂ¦Ã¢â‚¬â€œÃ‚Â°ÃƒÂ¥Ã‚Â¯Ã‚Â¹ÃƒÂ¨Ã‚Â¯Ã‚Â',
                 created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
                 deleted_at DATETIME NULL,
@@ -116,6 +116,27 @@ def test_database():
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """
         )
+        cursor.execute(
+            """
+            CREATE TABLE IF NOT EXISTS agent_call_traces (
+                id BIGINT PRIMARY KEY AUTO_INCREMENT,
+                trace_id VARCHAR(80) NOT NULL UNIQUE,
+                user_id VARCHAR(50) NOT NULL,
+                session_id VARCHAR(80) NOT NULL,
+                query MEDIUMTEXT NOT NULL,
+                status VARCHAR(40) NOT NULL,
+                route_agent VARCHAR(80) NULL,
+                stages JSON NULL,
+                duration_ms INT NULL,
+                error_message TEXT NULL,
+                created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                INDEX idx_agent_traces_user_created (user_id, created_at),
+                INDEX idx_agent_traces_session_created (session_id, created_at),
+                INDEX idx_agent_traces_status_created (status, created_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """
+        )
     conn.close()
     return db_name
 
@@ -125,7 +146,7 @@ def reset_database(test_database):
     conn = _connect(test_database)
     with conn.cursor() as cursor:
         cursor.execute("SET FOREIGN_KEY_CHECKS=0")
-        for table in ("refresh_tokens", "chat_messages", "chat_sessions", "users"):
+        for table in ("agent_call_traces", "refresh_tokens", "chat_messages", "chat_sessions", "users"):
             cursor.execute(f"TRUNCATE TABLE {table}")
         cursor.execute("SET FOREIGN_KEY_CHECKS=1")
         password_hash = pwd_context.hash("Cloud@123456")
@@ -135,8 +156,8 @@ def reset_database(test_database):
             VALUES (%s, %s, %s, %s, 0)
             """,
             [
-                ("user_1001", "user_1001", "用户 1001", password_hash),
-                ("user_1002", "user_1002", "用户 1002", password_hash),
+                ("user_1001", "user_1001", "ÃƒÂ§Ã¢â‚¬ÂÃ‚Â¨ÃƒÂ¦Ã‹â€ Ã‚Â· 1001", password_hash),
+                ("user_1002", "user_1002", "ÃƒÂ§Ã¢â‚¬ÂÃ‚Â¨ÃƒÂ¦Ã‹â€ Ã‚Â· 1002", password_hash),
             ],
         )
     conn.close()
