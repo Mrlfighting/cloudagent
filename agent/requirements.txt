@@ -27,6 +27,8 @@ asyncio-mqtt>=0.16.0
 aiofiles>=23.0.0
 
 # Database
+alembic>=1.13.0
+SQLAlchemy>=2.0.0
 neo4j>=5.20.0
 redis>=5.0.0
 pymilvus>=2.4.0
