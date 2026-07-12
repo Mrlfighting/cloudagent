@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div v-if="!currentUser" class="login-page">
     <section class="login-shell">
       <div class="login-hero">
