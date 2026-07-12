@@ -54,12 +54,12 @@ def test_session_lifecycle_and_soft_delete(client):
     payload = login(client)
     headers = auth_headers(payload)
 
-    created = client.post("/api/sessions", json={"title": "测试会话"}, headers=headers)
+    created = client.post("/api/sessions", json={"title": "æµ‹è¯•ä¼šè¯"}, headers=headers)
     assert created.status_code == 200, created.text
     session_id = created.json()["session_id"]
 
-    append_message("user_1001", session_id, "user", "帮我查一下订单")
-    append_message("user_1001", session_id, "assistant", "订单记录已找到")
+    append_message("user_1001", session_id, "user", "å¸®æˆ‘æŸ¥ä¸€ä¸‹è®¢å•")
+    append_message("user_1001", session_id, "assistant", "è®¢å•è®°å½•å·²æ‰¾åˆ°")
 
     messages = client.get(f"/api/sessions/{session_id}/messages", headers=headers)
     assert messages.status_code == 200
@@ -95,9 +95,9 @@ def test_chat_sse_persists_messages(monkeypatch, client):
 
     async def fake_stream_chat(query, user_id, session_id):
         append_message(user_id, session_id, "user", query)
-        yield 'data: {"type":"status","status":"thinking","message":"正在思考"}\n\n'
-        append_message(user_id, session_id, "assistant", "这是测试回答")
-        yield 'data: {"type":"content","content":"这是测试回答"}\n\n'
+        yield 'data: {"type":"status","status":"thinking","message":"æ­£åœ¨æ€è€ƒ"}\n\n'
+        append_message(user_id, session_id, "assistant", "è¿™æ˜¯æµ‹è¯•å›žç­”")
+        yield 'data: {"type":"content","content":"è¿™æ˜¯æµ‹è¯•å›žç­”"}\n\n'
         yield 'data: {"type":"done","done":true}\n\n'
 
     monkeypatch.setattr(chat_router, "stream_chat", fake_stream_chat)
@@ -107,11 +107,65 @@ def test_chat_sse_persists_messages(monkeypatch, client):
     created = client.post("/api/sessions", json={"title": "chat"}, headers=headers)
     session_id = created.json()["session_id"]
 
-    response = client.post("/api/chat", json={"query": "测试 SSE", "session_id": session_id}, headers=headers)
+    response = client.post("/api/chat", json={"query": "æµ‹è¯• SSE", "session_id": session_id}, headers=headers)
     assert response.status_code == 200, response.text
     events = parse_sse(response.text)
     assert [event["type"] for event in events] == ["status", "content", "done"]
 
     messages = client.get(f"/api/sessions/{session_id}/messages", headers=headers).json()
     assert [message["role"] for message in messages] == ["user", "assistant"]
-    assert messages[1]["content"] == "这是测试回答"
+    assert messages[1]["content"] == "è¿™æ˜¯æµ‹è¯•å›žç­”"
+
+def test_stream_chat_writes_agent_trace(monkeypatch, client):
+    import asyncio
+    from service import chat_service
+    from infra.db import get_db_connection
+
+    class Message:
+        content = "Trace answer"
+
+    class FakeGraph:
+        async def ainvoke(self, state, config=None):
+            return {"messages": [Message()], "next_agent": "product_agent", "metadata": {}}
+
+    async def no_cache(query, user_id):
+        return None
+
+    async def collect_stream(query, user_id, session_id):
+        chunks = []
+        async for chunk in chat_service.stream_chat(query, user_id, session_id):
+            chunks.append(chunk)
+        return chunks
+
+    monkeypatch.setattr(chat_service.semantic_cache, "get_cache", no_cache)
+    monkeypatch.setattr(chat_service, "graph", FakeGraph())
+    monkeypatch.setattr(chat_service, "memory", None)
+
+    payload = login(client)
+    headers = auth_headers(payload)
+    created = client.post("/api/sessions", json={"title": "trace"}, headers=headers)
+    session_id = created.json()["session_id"]
+
+    chunks = asyncio.run(collect_stream("trace this request", "user_1001", session_id))
+    events = parse_sse("".join(chunks))
+    assert events[-1]["type"] == "done"
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT status, route_agent, duration_ms, error_message, JSON_LENGTH(stages) AS stage_count
+                FROM agent_call_traces
+                WHERE session_id = %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            )
+            trace = cursor.fetchone()
+
+    assert trace["status"] == "success"
+    assert trace["route_agent"] == "product_agent"
+    assert trace["duration_ms"] is not None
+    assert trace["error_message"] is None
+    assert trace["stage_count"] >= 4
