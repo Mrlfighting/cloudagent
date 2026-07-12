@@ -80,3 +80,49 @@ INSERT INTO instance_metrics_daily (instance_id, user_id, metric_date, avg_cpu_u
 ('i-bp1_user1002_ecs', 'user_1002', DATE_SUB(CURDATE(), INTERVAL 2 DAY), 39.10, 60.80, 47.00),
 ('i-bp1_user1002_ecs', 'user_1002', DATE_SUB(CURDATE(), INTERVAL 1 DAY), 42.80, 64.20, 53.00),
 ('i-bp1_user1002_ecs', 'user_1002', CURDATE(), 40.30, 61.90, 49.00);
+
+CREATE TABLE IF NOT EXISTS users (
+    user_id VARCHAR(50) PRIMARY KEY COMMENT '用户ID',
+    username VARCHAR(80) NOT NULL UNIQUE COMMENT '登录用户名',
+    display_name VARCHAR(100) NOT NULL COMMENT '显示名称',
+    password_hash VARCHAR(255) NOT NULL COMMENT '密码哈希',
+    disabled TINYINT NOT NULL DEFAULT 0 COMMENT '是否禁用',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='系统用户表';
+
+CREATE TABLE IF NOT EXISTS chat_sessions (
+    session_id VARCHAR(80) PRIMARY KEY COMMENT '会话ID',
+    user_id VARCHAR(50) NOT NULL COMMENT '所属用户',
+    title VARCHAR(100) NOT NULL DEFAULT '新对话' COMMENT '会话标题',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    deleted_at DATETIME NULL COMMENT '软删除时间',
+    INDEX idx_chat_sessions_user_updated (user_id, deleted_at, updated_at),
+    CONSTRAINT fk_chat_sessions_user FOREIGN KEY (user_id) REFERENCES users(user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天会话表';
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    session_id VARCHAR(80) NOT NULL COMMENT '会话ID',
+    user_id VARCHAR(50) NOT NULL COMMENT '所属用户',
+    role VARCHAR(20) NOT NULL COMMENT 'user/assistant',
+    content MEDIUMTEXT NOT NULL COMMENT '消息内容',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_chat_messages_session_id (session_id, id),
+    INDEX idx_chat_messages_user_id (user_id, created_at),
+    CONSTRAINT fk_chat_messages_session FOREIGN KEY (session_id) REFERENCES chat_sessions(session_id),
+    CONSTRAINT fk_chat_messages_user FOREIGN KEY (user_id) REFERENCES users(user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='聊天消息表';
+
+CREATE TABLE IF NOT EXISTS refresh_tokens (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    token_hash CHAR(64) NOT NULL UNIQUE COMMENT '刷新令牌SHA256',
+    user_id VARCHAR(50) NOT NULL COMMENT '所属用户',
+    expires_at DATETIME NOT NULL COMMENT '过期时间',
+    revoked_at DATETIME NULL COMMENT '撤销时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_refresh_tokens_user_id (user_id),
+    INDEX idx_refresh_tokens_expires_at (expires_at),
+    CONSTRAINT fk_refresh_tokens_user FOREIGN KEY (user_id) REFERENCES users(user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='刷新令牌表';
