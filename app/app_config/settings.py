@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     jwt_secret_key: str | None = None
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 7
+    agent_demo_mode: bool = False
     
     model_config = SettingsConfigDict(env_file=ENV_FILE, extra='ignore')
 
