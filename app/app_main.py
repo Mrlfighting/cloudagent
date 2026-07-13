@@ -9,7 +9,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
-from router import auth, chat, sessions
+from router import auth, chat, sessions, traces
 from service.chat_service import init_agent_system
 
 @asynccontextmanager
@@ -35,6 +35,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(sessions.router, prefix="/api")
+app.include_router(traces.router, prefix="/api")
 
 if __name__ == "__main__":
     import uvicorn
