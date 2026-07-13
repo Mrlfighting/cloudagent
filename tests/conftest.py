@@ -23,7 +23,7 @@ os.environ.setdefault("JWT_SECRET_KEY", "test_secret_key_for_cloud_agent_pytest_
 sys.path.insert(0, str(ROOT / "app"))
 sys.path.insert(0, str(ROOT / "agent"))
 
-from router import auth, chat, sessions  # noqa: E402
+from router import auth, chat, sessions, traces  # noqa: E402
 
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
@@ -176,4 +176,5 @@ def client(test_database):
     app.include_router(auth.router, prefix="/api")
     app.include_router(chat.router, prefix="/api")
     app.include_router(sessions.router, prefix="/api")
+    app.include_router(traces.router, prefix="/api")
     return TestClient(app)
