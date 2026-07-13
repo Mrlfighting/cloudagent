@@ -169,3 +169,66 @@ def test_stream_chat_writes_agent_trace(monkeypatch, client):
     assert trace["duration_ms"] is not None
     assert trace["error_message"] is None
     assert trace["stage_count"] >= 4
+
+def test_demo_mode_stream_chat_is_offline_and_persists_trace(monkeypatch, client):
+    import asyncio
+    from service import chat_service
+    from infra.db import get_db_connection
+
+    async def fail_if_cache_called(query, user_id):
+        raise AssertionError("semantic cache should not be called in demo mode")
+
+    class FailGraph:
+        async def ainvoke(self, state, config=None):
+            raise AssertionError("real agent graph should not be called in demo mode")
+
+    async def collect_stream(query, user_id, session_id):
+        chunks = []
+        async for chunk in chat_service.stream_chat(query, user_id, session_id):
+            chunks.append(chunk)
+        return chunks
+
+    monkeypatch.setattr(chat_service.app_settings, "agent_demo_mode", True)
+    monkeypatch.setattr(chat_service.semantic_cache, "get_cache", fail_if_cache_called)
+    monkeypatch.setattr(chat_service, "graph", FailGraph())
+    monkeypatch.setattr(chat_service, "memory", None)
+
+    payload = login(client)
+    headers = auth_headers(payload)
+    created = client.post("/api/sessions", json={"title": "demo"}, headers=headers)
+    session_id = created.json()["session_id"]
+
+    chunks = asyncio.run(collect_stream("帮我查一下最近的订单记录", "user_1001", session_id))
+    events = parse_sse("".join(chunks))
+
+    assert [event["type"] for event in events if event["type"] != "content"] == [
+        "status",
+        "status",
+        "status",
+        "status",
+        "done",
+    ]
+    assert "订单" in "".join(event.get("content", "") for event in events)
+
+    messages = client.get(f"/api/sessions/{session_id}/messages", headers=headers).json()
+    assert [message["role"] for message in messages] == ["user", "assistant"]
+    assert "订单" in messages[1]["content"]
+
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT status, route_agent, error_message, JSON_LENGTH(stages) AS stage_count
+                FROM agent_call_traces
+                WHERE session_id = %s
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (session_id,),
+            )
+            trace = cursor.fetchone()
+
+    assert trace["status"] == "success"
+    assert trace["route_agent"] == "order_agent"
+    assert trace["error_message"] is None
+    assert trace["stage_count"] >= 4

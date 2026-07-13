@@ -8,10 +8,12 @@ AGENT_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file_
 if AGENT_DIR not in sys.path:
     sys.path.insert(0, AGENT_DIR)
 
+from app_config.settings import settings as app_settings
 from core.memory.memory_manager import MemoryManager
 from core.workflow.graph_manager import AgentGraphManager
 from infra.cache import semantic_cache
 from service.agent_trace_service import append_trace_stage, finish_trace, start_trace
+from service.demo_agent_service import build_demo_response
 from service.session_service import append_message
 
 graph = None
@@ -20,6 +22,10 @@ memory = None
 
 async def init_agent_system():
     global graph, memory
+    if app_settings.agent_demo_mode:
+        print("[Init] AGENT_DEMO_MODE=true, skipping real Agent, memory and semantic cache initialization.")
+        return
+
     if graph is None:
         print("[Init] Initializing Multi-Agent graph...")
         graph_manager = AgentGraphManager()
@@ -100,40 +106,51 @@ async def stream_chat(query: str, user_id: str, session_id: str):
     try:
         append_message(user_id, session_id, "user", query)
 
-        yield status_event("thinking", "正在理解问题...")
-        await asyncio.sleep(0)
-
-        yield status_event("cache_lookup", "正在检查历史答案...")
-        cache_hit = await semantic_cache.get_cache(query, user_id)
-        if cache_hit:
-            route_agent = "semantic_cache"
-            response_text = cache_hit["answer"]
-            append_trace_stage(trace_id, "cache_hit", f"命中语义缓存: {cache_hit.get('level', 'unknown')}")
-            print(
-                f"[Cache] Hit: {cache_hit['level']} distance={cache_hit['distance']:.4f} matched='{cache_hit['matched_question']}'"
-            )
+        if app_settings.agent_demo_mode:
+            yield status_event("thinking", "正在理解问题...")
+            await asyncio.sleep(0)
+            demo_result = build_demo_response(query)
+            route_agent = demo_result.route_agent
+            yield status_event("agent_routing", f"已路由到 {route_agent}")
+            await asyncio.sleep(0)
+            yield status_event("tool_calling", f"正在调用 {demo_result.tool_name}")
+            await asyncio.sleep(0)
+            response_text = demo_result.answer
         else:
-            print("[Agent] Entering Agent workflow...")
-            yield status_event("retrieving_context", "正在读取对话历史和用户偏好...")
-            mem_context = await _extract_memory_context(user_id, session_id, query)
-            state = {
-                "messages": [("user", query)],
-                "user_id": user_id,
-                "session_id": session_id,
-                "memory_context": mem_context,
-                "next_agent": "",
-                "metadata": {},
-            }
-            config = {"configurable": {"user_id": user_id}}
-            yield status_event("agent_working", "正在思考并查询必要工具...")
-            result = await graph.ainvoke(state, config=config)
-            route_agent = _route_label(result)
-            append_trace_stage(trace_id, "agent_routed", f"命中 {route_agent}")
-            response_text = result["messages"][-1].content
+            yield status_event("thinking", "正在理解问题...")
+            await asyncio.sleep(0)
+
+            yield status_event("cache_lookup", "正在检查历史答案...")
+            cache_hit = await semantic_cache.get_cache(query, user_id)
+            if cache_hit:
+                route_agent = "semantic_cache"
+                response_text = cache_hit["answer"]
+                append_trace_stage(trace_id, "cache_hit", f"命中语义缓存: {cache_hit.get('level', 'unknown')}")
+                print(
+                    f"[Cache] Hit: {cache_hit['level']} distance={cache_hit['distance']:.4f} matched='{cache_hit['matched_question']}'"
+                )
+            else:
+                print("[Agent] Entering Agent workflow...")
+                yield status_event("retrieving_context", "正在读取对话历史和用户偏好...")
+                mem_context = await _extract_memory_context(user_id, session_id, query)
+                state = {
+                    "messages": [("user", query)],
+                    "user_id": user_id,
+                    "session_id": session_id,
+                    "memory_context": mem_context,
+                    "next_agent": "",
+                    "metadata": {},
+                }
+                config = {"configurable": {"user_id": user_id}}
+                yield status_event("agent_working", "正在思考并查询必要工具...")
+                result = await graph.ainvoke(state, config=config)
+                route_agent = _route_label(result)
+                append_trace_stage(trace_id, "agent_routed", f"命中 {route_agent}")
+                response_text = result["messages"][-1].content
 
         append_message(user_id, session_id, "assistant", response_text)
 
-        if memory and memory.short_term.available:
+        if not app_settings.agent_demo_mode and memory and memory.short_term.available:
             turn = [
                 {"role": "user", "content": query},
                 {"role": "assistant", "content": response_text},
