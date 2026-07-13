@@ -1,22 +1,20 @@
 # Cloud Agent 云平台智能客服系统
 
-Cloud Agent 是一个面向云产品咨询、订单账单查询、推广活动和资源优化建议的 Multi-Agent 智能客服项目。项目不是简单的大模型套壳，而是把登录体系、用户隔离、会话持久化、RAG/工具调用、SSE 流式响应和工程化部署串成了一个可运行的完整应用。
+Cloud Agent 是一个面向云产品咨询、订单/账单查询、推广活动、产品推荐和资源优化建议的 Multi-Agent 智能客服项目。项目把登录体系、用户隔离、会话持久化、SSE 流式响应、Agent 路由、工具调用轨迹、测试、迁移和 Docker Compose 串成了一个可运行的完整应用，适合作为简历项目展示工程能力。
 
 ## 功能亮点
 
-- 多用户登录：预置 `user_1001`、`user_1002`，密码 `Cloud@123456`，使用 bcrypt + JWT access token + refresh token。
-- 会话历史：MySQL 持久化会话和消息，支持切换历史、恢复消息、软删除会话。
-- Multi-Agent 路由：Orchestrator 根据意图分发到产品、账单、推广、推荐和 FinOps Agent。
-- 工具调用：账单/实例/监控数据通过 MCP 工具查询，避免模型伪造业务数据。
-- RAG 与记忆：Redis 维护短期上下文，Milvus/Neo4j 支撑知识检索和产品问答。
-- SSE 流式体验：前端实时显示“正在思考 / 正在查询 / 正在调用工具 / 正在生成回答”。
-- 可观测性：`agent_call_traces` 记录每次 Agent 调用的用户、会话、阶段、路由结果、耗时和失败原因。
-- 工程化：Alembic 版本化 migration、pytest 接口测试、Playwright E2E、Docker Compose 一键运行。
+- 多用户登录：预置 `user_1001`、`user_1002`，密码 `Cloud@123456`，使用 bcrypt、JWT access token 和 refresh token。
+- 会话历史：MySQL 持久化会话和消息，支持历史切换、消息恢复、软删除和用户隔离。
+- Multi-Agent 路由：按意图路由到产品问答、订单、账单、推荐、FinOps 等 Agent。
+- 稳定演示模式：`AGENT_DEMO_MODE=true` 时不依赖 DashScope、embedding、RAG 或外部 MCP，也能完整演示聊天、SSE、会话和 trace。
+- 调用轨迹：后端记录每次请求的阶段、命中 Agent、耗时和失败原因；前端可在“调用轨迹”抽屉中查看。
+- 工程化：Alembic migration、pytest 接口测试、Playwright E2E、Agent route eval、Docker Compose 一键启动。
 
 ## 技术栈
 
 - 后端：FastAPI、pymysql、Alembic、python-jose、passlib、SSE
-- Agent：LangGraph、LangChain、DashScope 兼容 OpenAI SDK、MCP
+- Agent：LangGraph、LangChain、DashScope、MCP
 - 存储：MySQL、Redis、Milvus、Neo4j
 - 前端：Vue 3、Element Plus、Vite、Marked、Playwright
 - 部署：Docker Compose、Nginx、Uvicorn
@@ -36,15 +34,13 @@ flowchart LR
   CHAT --> CACHE[(Redis)]
   CHAT --> GRAPH[LangGraph Orchestrator]
   GRAPH --> PRODUCT[Product Agent]
+  GRAPH --> ORDER[Order Agent]
   GRAPH --> BILLING[Billing Agent]
   GRAPH --> PROMO[Promotion Agent]
-  GRAPH --> REC[Recommendation Agent]
   GRAPH --> FINOPS[FinOps Agent]
   BILLING --> MCP[MCP Cloud Platform Tools]
-  PROMO --> MCP
   FINOPS --> MCP
   PRODUCT --> RAG[Milvus / Neo4j]
-  MCP --> DB
 ```
 
 ## Agent 流程
@@ -62,17 +58,15 @@ sequenceDiagram
   FE->>API: POST /api/chat with Bearer token
   API->>Trace: started + thinking
   API-->>FE: status: thinking
-  API->>Cache: semantic cache lookup
-  alt cache hit
-    Cache-->>API: cached answer
-    API->>Trace: cache_hit
-  else cache miss
+  alt AGENT_DEMO_MODE=true
+    API->>API: deterministic local routing
+    API->>Trace: agent_routing + tool_calling
+  else real agent mode
+    API->>Cache: semantic cache lookup
     API->>Orchestrator: classify intent
     Orchestrator->>Agent: route to agent
-    Agent->>Tool: query orders / instances / metrics
-    Tool-->>Agent: structured data
-    Agent-->>API: answer
-    API->>Trace: agent_routed
+    Agent->>Tool: query structured data
+    Tool-->>Agent: result
   end
   API->>Trace: success / error + duration
   API-->>FE: content chunks + done
@@ -80,66 +74,64 @@ sequenceDiagram
 
 ## 快速启动
 
-### 1. 本地环境启动
+### 本地启动
 
-```bash
-conda activate D:\SoftwareInstallation\Anaconda\envs\cloud_agent
-pip install -r agent/requirements.txt
-cd front/cloud_agent
+```powershell
+D:\SoftwareInstallation\Anaconda\envs\cloud_agent\python.exe -m pip install -r agent\requirements.txt
+cd front\cloud_agent
 npm install
 ```
 
-复制并填写配置：
+复制配置：
 
-```bash
+```powershell
 copy agent\.env.example agent\.env
 copy front\cloud_agent\.env.example front\cloud_agent\.env.local
 ```
 
 关键配置：
 
-- `DASHSCOPE_API_KEY`：DashScope 可用 key。
 - `JWT_SECRET_KEY`：至少 32 位随机字符串。
+- `DASHSCOPE_API_KEY`：真实 Agent 模式需要可用 key。
+- `AGENT_DEMO_MODE=true`：推荐本地演示开启，避免 DashScope SSL、代理、欠费等问题影响展示。
 - `MYSQL_*`、`REDIS_URL`、`MILVUS_*`、`NEO4J_*`：本地或 Docker 中间件地址。
 
 初始化数据库：
 
-```bash
-python -m alembic upgrade head
+```powershell
+D:\SoftwareInstallation\Anaconda\envs\cloud_agent\python.exe -m alembic upgrade head
 ```
 
 启动后端：
 
-```bash
+```powershell
 cd app
-python app_main.py
+D:\SoftwareInstallation\Anaconda\envs\cloud_agent\python.exe app_main.py
 ```
 
 启动前端：
 
-```bash
-cd front/cloud_agent
+```powershell
+cd front\cloud_agent
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
 
 访问：`http://127.0.0.1:5173`
 
-### 2. Docker Compose 一键启动
+### Docker Compose
 
 ```bash
 docker compose up --build
 ```
 
-Compose 会启动 MySQL、Redis、Neo4j、Milvus、FastAPI 和前端 Nginx。前端访问地址：`http://127.0.0.1:5173`。
-
-> 注意：`docker compose config` 会展开本地 `agent/.env`，不要把带真实 key 的输出贴到公开位置。
+Compose 会启动 MySQL、Redis、Neo4j、Milvus、FastAPI 和前端服务。不要把包含真实 key 的 `agent/.env` 或 `docker compose config` 输出提交到仓库。
 
 ## 测试账号
 
 | 用户名 | 密码 | 说明 |
 |---|---|---|
-| `user_1001` | `Cloud@123456` | 企业用户，包含 ECS/RDS/共享带宽订单和低利用率资源数据 |
-| `user_1002` | `Cloud@123456` | 个人开发者用户，包含按量 ECS 和云盘订单 |
+| `user_1001` | `Cloud@123456` | 企业用户演示账号 |
+| `user_1002` | `Cloud@123456` | 隔离验证账号 |
 
 ## API 概览
 
@@ -153,6 +145,8 @@ Compose 会启动 MySQL、Redis、Neo4j、Milvus、FastAPI 和前端 Nginx。前
 | POST | `/api/sessions` | 创建会话 |
 | GET | `/api/sessions/{session_id}/messages` | 获取会话消息 |
 | DELETE | `/api/sessions/{session_id}` | 软删除会话 |
+| GET | `/api/sessions/{session_id}/traces` | 获取当前用户指定会话的调用轨迹 |
+| GET | `/api/traces/recent?limit=20` | 获取当前用户最近调用轨迹 |
 | POST | `/api/chat` | SSE 流式聊天，返回 `status/content/done/error` 事件 |
 
 ## 数据库表
@@ -170,46 +164,47 @@ Compose 会启动 MySQL、Redis、Neo4j、Milvus、FastAPI 和前端 Nginx。前
 
 后端接口测试：
 
-```bash
-python -m pytest tests -q
+```powershell
+D:\SoftwareInstallation\Anaconda\envs\cloud_agent\python.exe -m pytest tests -q
+```
+
+Agent 路由评测：
+
+```powershell
+D:\SoftwareInstallation\Anaconda\envs\cloud_agent\python.exe -m evals.run_agent_evals
 ```
 
 前端构建：
 
-```bash
-cd front/cloud_agent
+```powershell
+cd front\cloud_agent
 npm run build
 ```
 
 前端 E2E：
 
-```bash
-cd front/cloud_agent
+```powershell
+cd front\cloud_agent
 npx playwright install chromium
 npm run test:e2e
 ```
 
-Docker 配置校验：
+## 演示建议
 
-```bash
-docker compose config
-```
+完整脚本见 [docs/demo-use-cases.md](docs/demo-use-cases.md)。推荐演示顺序：
 
-## 演示用例
-
-完整演示脚本见 [docs/demo-use-cases.md](docs/demo-use-cases.md)。推荐面试展示顺序：
-
-1. 使用 `user_1001` 登录。
-2. 提问“帮我查一下我最近的订单记录”，展示账单 Agent 和持久化历史。
-3. 提问“获取近7天CPU/内存/带宽数据并做降本建议”，展示 Billing -> FinOps 工作流。
-4. 退出后用 `user_1002` 登录，展示会话隔离。
-5. 打开数据库 `agent_call_traces`，展示阶段、耗时、路由结果。
+1. 设置 `AGENT_DEMO_MODE=true`，保证演示稳定。
+2. 用 `user_1001` 登录，发送订单查询、账单查询、产品推荐和资源优化问题。
+3. 打开前端“调用轨迹”，展示路由 Agent、阶段状态和耗时。
+4. 刷新页面后展示会话历史仍然存在。
+5. 退出后用 `user_1002` 登录，展示用户会话隔离。
+6. 运行 `python -m evals.run_agent_evals`，展示 Agent 路由评测 5/5 通过。
 
 ## 常见问题
 
 ### 页面出现 `????`
 
-优先检查 MySQL 字符集：
+检查 MySQL 字符集：
 
 ```sql
 SELECT DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME
@@ -217,21 +212,28 @@ FROM information_schema.SCHEMATA
 WHERE SCHEMA_NAME = 'cloud_platform';
 ```
 
-应为 `utf8mb4` 和 `utf8mb4_unicode_ci`。如果旧库已有乱码数据，重新执行 migration/初始化脚本后再创建新会话。
+应使用 `utf8mb4`。如果旧库已有乱码数据，重新执行 migration 或初始化脚本后再创建新会话。
 
-### `/api/chat` 无响应或 Agent 路由失败
+### `/api/chat` 返回 Connection error
 
-检查：
+通常是 DashScope 网络、SSL、代理或账号状态问题。演示时建议先设置：
 
-- `DASHSCOPE_API_KEY` 是否有效且账号未欠费。
-- Redis、Milvus、Neo4j、MySQL 是否可连接。
-- `agent_call_traces` 中是否记录 `error` 状态和失败原因。
-
-### Playwright 无浏览器
-
-执行：
-
-```bash
-cd front/cloud_agent
-npx playwright install chromium
+```env
+AGENT_DEMO_MODE=true
 ```
+
+真实 Agent 联调时再切回：
+
+```env
+AGENT_DEMO_MODE=false
+```
+
+### Trace 表没有数据
+
+先确认已执行：
+
+```powershell
+D:\SoftwareInstallation\Anaconda\envs\cloud_agent\python.exe -m alembic upgrade head
+```
+
+再发起一次聊天请求，然后查看前端“调用轨迹”或查询 `agent_call_traces`。
