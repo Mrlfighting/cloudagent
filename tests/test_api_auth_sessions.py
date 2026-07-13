@@ -232,3 +232,35 @@ def test_demo_mode_stream_chat_is_offline_and_persists_trace(monkeypatch, client
     assert trace["route_agent"] == "order_agent"
     assert trace["error_message"] is None
     assert trace["stage_count"] >= 4
+
+
+def test_trace_api_requires_auth_and_is_user_scoped(client):
+    from service.agent_trace_service import append_trace_stage, finish_trace, start_trace
+
+    assert client.get("/api/traces/recent").status_code == 401
+
+    user1 = login(client, "user_1001")
+    user2 = login(client, "user_1002")
+    headers1 = auth_headers(user1)
+    headers2 = auth_headers(user2)
+
+    created = client.post("/api/sessions", json={"title": "trace api"}, headers=headers1)
+    session_id = created.json()["session_id"]
+    trace_id = start_trace("user_1001", session_id, "查询账单")
+    append_trace_stage(trace_id, "thinking", "正在理解问题...")
+    append_trace_stage(trace_id, "agent_routing", "已路由到账单 Agent")
+    finish_trace(trace_id, status="success", route_agent="billing_agent", duration_ms=123)
+
+    session_traces = client.get(f"/api/sessions/{session_id}/traces", headers=headers1)
+    assert session_traces.status_code == 200, session_traces.text
+    trace = session_traces.json()[0]
+    assert trace["route_agent"] == "billing_agent"
+    assert trace["duration_ms"] == 123
+    assert trace["stages"][0]["status"] == "thinking"
+
+    recent = client.get("/api/traces/recent?limit=5", headers=headers1)
+    assert recent.status_code == 200
+    assert recent.json()[0]["trace_id"] == trace_id
+
+    assert client.get(f"/api/sessions/{session_id}/traces", headers=headers2).status_code == 404
+    assert client.get("/api/traces/recent?limit=5", headers=headers2).json() == []
