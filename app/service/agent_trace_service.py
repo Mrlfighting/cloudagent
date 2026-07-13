@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 import uuid
@@ -18,6 +18,24 @@ def _safe_execute(operation):
     except Exception as exc:
         print(f"[Trace] write skipped: {exc}")
         return None
+
+
+def _decode_stages(stages: Any) -> list[dict[str, Any]]:
+    if not stages:
+        return []
+    if isinstance(stages, list):
+        return stages
+    try:
+        decoded = json.loads(stages)
+    except (TypeError, json.JSONDecodeError):
+        return []
+    return decoded if isinstance(decoded, list) else []
+
+
+def _format_trace(row: dict[str, Any]) -> dict[str, Any]:
+    row = dict(row)
+    row["stages"] = _decode_stages(row.get("stages"))
+    return row
 
 
 def start_trace(user_id: str, session_id: str, query: str) -> str | None:
@@ -52,7 +70,7 @@ def append_trace_stage(trace_id: str | None, status: str, message: str) -> None:
                 row = cursor.fetchone()
                 if not row:
                     return
-                stages = json.loads(row.get("stages") or "[]")
+                stages = _decode_stages(row.get("stages"))
                 stages.append({"status": status, "message": message, "at": _utc_iso()})
                 cursor.execute(
                     """
@@ -96,16 +114,35 @@ def finish_trace(
     _safe_execute(operation)
 
 
-def list_recent_traces(limit: int = 20) -> list[dict[str, Any]]:
+def list_recent_traces(user_id: str, limit: int = 20) -> list[dict[str, Any]]:
+    safe_limit = max(1, min(limit, 100))
     with get_db_connection() as conn:
         with conn.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT trace_id, user_id, session_id, status, route_agent, duration_ms, error_message, created_at, updated_at
+                SELECT trace_id, user_id, session_id, query, status, route_agent, stages,
+                       duration_ms, error_message, created_at, updated_at
                 FROM agent_call_traces
+                WHERE user_id = %s
                 ORDER BY id DESC
                 LIMIT %s
                 """,
-                (limit,),
+                (user_id, safe_limit),
             )
-            return list(cursor.fetchall())
+            return [_format_trace(row) for row in cursor.fetchall()]
+
+
+def list_session_traces(user_id: str, session_id: str) -> list[dict[str, Any]]:
+    with get_db_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT trace_id, user_id, session_id, query, status, route_agent, stages,
+                       duration_ms, error_message, created_at, updated_at
+                FROM agent_call_traces
+                WHERE user_id = %s AND session_id = %s
+                ORDER BY id DESC
+                """,
+                (user_id, session_id),
+            )
+            return [_format_trace(row) for row in cursor.fetchall()]

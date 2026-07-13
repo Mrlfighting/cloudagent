@@ -113,7 +113,51 @@
           </div>
         </div>
       </el-drawer>
+      <el-drawer v-model="isTraceDrawerOpen" direction="rtl" size="min(92vw, 460px)" title="调用轨迹" class="trace-drawer">
+        <div class="trace-panel" v-loading="isTraceLoading">
+          <div v-if="!latestTrace" class="trace-empty">暂无调用轨迹</div>
+          <template v-else>
+            <section class="trace-summary">
+              <div>
+                <span>命中 Agent</span>
+                <strong>{{ routeAgentLabel(latestTrace.route_agent) }}</strong>
+              </div>
+              <div>
+                <span>执行状态</span>
+                <strong>{{ statusLabel(latestTrace.status) }}</strong>
+              </div>
+              <div>
+                <span>耗时</span>
+                <strong>{{ latestTrace.duration_ms ?? '-' }} ms</strong>
+              </div>
+            </section>
 
+            <section class="trace-block">
+              <h3>用户问题</h3>
+              <p>{{ latestTrace.query }}</p>
+            </section>
+
+            <section v-if="latestTrace.error_message" class="trace-block trace-error">
+              <h3>失败原因</h3>
+              <p>{{ latestTrace.error_message }}</p>
+            </section>
+
+            <section class="trace-block">
+              <h3>阶段轨迹</h3>
+              <div class="trace-stage-list">
+                <div v-for="(stage, index) in latestTrace.stages" :key="`${stage.status}_${index}`" class="trace-stage">
+                  <div class="stage-dot"></div>
+                  <div>
+                    <strong>{{ statusLabel(stage.status) }}</strong>
+                    <p>{{ stage.message }}</p>
+                    <span>{{ formatTraceTime(stage.at) }}</span>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </template>
+        </div>
+      </el-drawer>
       <el-main class="chat-main">
         <header class="chat-header">
           <el-button class="mobile-menu" :icon="Menu" circle @click="isSessionDrawerOpen = true" />
@@ -123,6 +167,7 @@
           </div>
           <div class="header-user">
             <span>{{ currentUser.display_name }}</span>
+            <el-button :icon="Service" circle title="调用轨迹" :disabled="!currentSessionId" @click="openTraceDrawer" />
             <el-button :icon="SwitchButton" circle title="退出登录" @click="logout" />
           </div>
         </header>
@@ -216,6 +261,25 @@ interface Message {
   created_at?: string
 }
 
+interface TraceStage {
+  status: string
+  message: string
+  at: string
+}
+
+interface AgentTrace {
+  trace_id: string
+  user_id: string
+  session_id: string
+  query: string
+  status: string
+  route_agent?: string | null
+  stages: TraceStage[]
+  duration_ms?: number | null
+  error_message?: string | null
+  created_at: string
+  updated_at: string
+}
 const loginForm = ref({ username: 'user_1001', password: 'Cloud@123456' })
 const accessToken = ref(localStorage.getItem(ACCESS_TOKEN_KEY) || '')
 const refreshToken = ref(localStorage.getItem(REFRESH_TOKEN_KEY) || '')
@@ -227,7 +291,10 @@ const inputQuery = ref('')
 const isAuthLoading = ref(false)
 const isChatLoading = ref(false)
 const isSessionDrawerOpen = ref(false)
+const isTraceDrawerOpen = ref(false)
+const isTraceLoading = ref(false)
 const messageListRef = ref<HTMLElement | null>(null)
+const traces = ref<AgentTrace[]>([])
 const DEFAULT_SESSION_TITLE = '\u65b0\u5bf9\u8bdd'
 
 const scenarios = [
@@ -244,6 +311,7 @@ const activeSessionTitle = computed(() => {
 })
 
 const userInitial = computed(() => currentUser.value?.display_name?.slice(0, 1).toUpperCase() || 'U')
+const latestTrace = computed(() => traces.value[0] || null)
 
 function displaySessionTitle(session?: Pick<ChatSession, 'title'> | null) {
   const title = session?.title?.trim()
@@ -274,6 +342,7 @@ function clearAuth() {
   sessions.value = []
   messages.value = []
   currentSessionId.value = ''
+  traces.value = []
   localStorage.removeItem(ACCESS_TOKEN_KEY)
   localStorage.removeItem(REFRESH_TOKEN_KEY)
 }
@@ -354,6 +423,7 @@ async function loadSessions() {
   } else {
     messages.value = []
     currentSessionId.value = ''
+  traces.value = []
   }
 }
 
@@ -376,6 +446,7 @@ async function createNewSession() {
   sessions.value.unshift({ ...session, message_count: 0, last_message: '' })
   currentSessionId.value = session.session_id
   messages.value = []
+  traces.value = []
 }
 
 async function switchSession(sessionId: string) {
@@ -391,6 +462,7 @@ async function switchSession(sessionId: string) {
     content: item.content,
     created_at: item.created_at,
   }))
+  await loadSessionTraces(false)
   scrollToBottom()
 }
 
@@ -415,9 +487,68 @@ async function deleteSession(sessionId: string) {
       await switchSession(sessions.value[0].session_id)
     } else {
       currentSessionId.value = ''
+  traces.value = []
       messages.value = []
+      traces.value = []
     }
   }
+}
+
+async function loadSessionTraces(showError = true) {
+  if (!currentSessionId.value) {
+    traces.value = []
+    return
+  }
+  isTraceLoading.value = true
+  try {
+    const response = await apiFetch('/api/sessions/' + currentSessionId.value + '/traces')
+    if (!response.ok) throw new Error('加载调用轨迹失败')
+    traces.value = await response.json()
+  } catch (error) {
+    if (showError) ElMessage.error(error instanceof Error ? error.message : '加载调用轨迹失败')
+  } finally {
+    isTraceLoading.value = false
+  }
+}
+
+async function openTraceDrawer() {
+  isTraceDrawerOpen.value = true
+  await loadSessionTraces()
+}
+
+function statusLabel(status?: string | null) {
+  const labels: Record<string, string> = {
+    started: '已开始',
+    thinking: '正在思考',
+    cache_lookup: '查询缓存',
+    cache_hit: '命中缓存',
+    retrieving_context: '读取上下文',
+    agent_working: '调用 Agent',
+    agent_routing: '路由 Agent',
+    agent_routed: '已路由',
+    tool_calling: '调用工具',
+    streaming: '生成回答',
+    success: '成功',
+    error: '失败',
+  }
+  return status ? labels[status] || status : '-'
+}
+
+function routeAgentLabel(agent?: string | null) {
+  const labels: Record<string, string> = {
+    product_agent: '产品问答 Agent',
+    order_agent: '订单查询 Agent',
+    billing_agent: '账单 Agent',
+    promotion_agent: '推荐 Agent',
+    finops_agent: 'FinOps Agent',
+    semantic_cache: '语义缓存',
+  }
+  return agent ? labels[agent] || agent : '-'
+}
+
+function formatTraceTime(value?: string) {
+  if (!value) return '-'
+  return new Date(value).toLocaleString()
 }
 
 function renderMarkdown(text: string) {
@@ -507,6 +638,7 @@ async function sendQuery(query: string) {
     }
     await refreshSessions()
     currentSessionId.value = sessionId
+    await loadSessionTraces(false)
   } catch (error) {
     const target = messages.value[assistantIndex]
     if (target) {
