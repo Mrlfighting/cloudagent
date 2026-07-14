@@ -7,7 +7,7 @@ from typing import Dict, Any
 from config.settings import create_llm
 
 from core.workflow.state import AgentState
-from agents.billing_agent import UserIdInjector
+from agents.billing_agent import UserIdInjector, normalize_mcp_config
 
 class PromotionAgentNode:
     def __init__(self):
@@ -16,7 +16,7 @@ class PromotionAgentNode:
         self.llm = create_llm(temperature=0.3)
         config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', 'mcp_servers.json')
         with open(config_path, 'r', encoding='utf-8') as f:
-            self.servers_config = json.load(f)
+            self.servers_config = normalize_mcp_config(json.load(f))
 
     async def __call__(self, state: AgentState) -> Dict[str, Any]:
         config = {"configurable": {"user_id": state.get("user_id", "unknown")}}

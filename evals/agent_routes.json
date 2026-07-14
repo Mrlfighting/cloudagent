@@ -1,0 +1,37 @@
+[
+  {
+    "id": "order_recent_records",
+    "query": "帮我查一下我最近的订单记录",
+    "expected_agent": "order_agent",
+    "expected_tools": ["mock_order_query"],
+    "expected_keywords": ["订单", "近 30 天", "已完成"]
+  },
+  {
+    "id": "billing_monthly_cost",
+    "query": "查询一下这个月的账单和费用构成",
+    "expected_agent": "billing_agent",
+    "expected_tools": ["mock_billing_query"],
+    "expected_keywords": ["账单", "ECS", "RDS", "消费"]
+  },
+  {
+    "id": "product_ecs_attributes",
+    "query": "云服务器ECS有哪些基本属性？",
+    "expected_agent": "product_agent",
+    "expected_tools": ["mock_product_knowledge_base"],
+    "expected_keywords": ["地域", "实例规格", "安全组", "计费方式"]
+  },
+  {
+    "id": "promotion_java_mysql_sizing",
+    "query": "我是Java接口服务+MySQL，8核16G够吗？推荐具体实例型号。",
+    "expected_agent": "promotion_agent",
+    "expected_tools": ["mock_product_recommendation"],
+    "expected_keywords": ["Java", "MySQL", "ECS", "RDS"]
+  },
+  {
+    "id": "finops_resource_optimization",
+    "query": "获取近7天CPU/内存/带宽数据并做降本建议",
+    "expected_agent": "finops_agent",
+    "expected_tools": ["mock_resource_optimizer"],
+    "expected_keywords": ["CPU", "降配", "包年包月", "带宽"]
+  }
+]
