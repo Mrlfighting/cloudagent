@@ -1,0 +1,13 @@
+.git
+.agents
+**/__pycache__
+**/*.py[cod]
+run_logs
+front/cloud_agent/node_modules
+front/cloud_agent/dist
+front/cloud_agent/test-results
+front/cloud_agent/playwright-report
+agent/.env
+front/cloud_agent/.env.local
+.env
+.DS_Store
