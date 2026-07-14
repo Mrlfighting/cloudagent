@@ -84,9 +84,13 @@ def create_llm(temperature: float = 0.1, model: str | None = None) -> ChatOpenAI
     """Create a ChatOpenAI instance with proxy-disabled httpx clients."""
     import os
     import certifi
+    import httpx
 
     # Fix conda's broken SSL_CERT_FILE path (force override)
     os.environ["SSL_CERT_FILE"] = certifi.where()
+    
+    # Fix proxy connection error: restore default proxy behavior
+    os.environ["LANGCHAIN_OPENAI_TCP_KEEPALIVE"] = "0"
 
     settings = get_settings()
     return ChatOpenAI(
@@ -94,6 +98,6 @@ def create_llm(temperature: float = 0.1, model: str | None = None) -> ChatOpenAI
         model=model or settings.model,
         base_url=settings.base_url or "https://dashscope.aliyuncs.com/compatible-mode/v1",
         temperature=temperature,
-        http_client=httpx.Client(proxy=None),
-        http_async_client=httpx.AsyncClient(proxy=None),
+        http_client=httpx.Client(verify=False),
+        http_async_client=httpx.AsyncClient(verify=False),
     )
