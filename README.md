@@ -141,13 +141,13 @@ flowchart TB
     end
 
     subgraph Delivery["接入与展示层"]
-        direction TB
+        direction LR
         Nginx["Nginx · HTTP<br/>静态资源与 /api 反向代理"]
         Web["Vue 3 + TypeScript<br/>Element Plus · 响应式聊天界面"]
     end
 
     subgraph Application["应用服务层 · FastAPI"]
-        direction TB
+        direction LR
         Gateway["REST API / SSE<br/>JWT 鉴权 · 会话归属校验"]
         Auth["认证服务<br/>JWT · Refresh Token"]
         Session["会话服务<br/>历史恢复 · 软删除"]
@@ -161,28 +161,18 @@ flowchart TB
         Demo["Demo Router<br/>确定性离线回答"]
         Cache{"Semantic Cache<br/>是否命中"}
         Orchestrator["Orchestrator<br/>意图识别与任务调度"]
-        Product["Product<br/>知识问答"]
-        Billing["Billing<br/>订单与资源"]
-        Promotion["Promotion<br/>推广材料"]
-        Recommend["Recommendation<br/>产品选型"]
-        FinOps["FinOps<br/>资源优化"]
+        Agents["专业 Agent<br/>Product · Billing · Promotion<br/>Recommendation · FinOps"]
         Result["回答汇聚<br/>消息持久化 · SSE 输出"]
     end
 
-    subgraph Capabilities["工具与外部能力"]
+    subgraph Resources["工具、外部能力与数据层"]
         direction LR
         MCP["MCP Server<br/>订单 · 实例 · 指标 · 产品目录"]
-        Vector["Vector RAG<br/>产品文档语义检索"]
-        Graph["Graph RAG<br/>产品实体关系检索"]
         Model["DashScope<br/>对话模型 · Embedding"]
-    end
-
-    subgraph Infrastructure["数据与基础设施"]
-        direction LR
         MySQL[("MySQL 8<br/>用户 · 会话 · 业务数据 · Trace")]
         Redis[("Redis 7<br/>短期上下文 · TTL")]
-        Milvus[("Milvus<br/>向量知识 · 长期偏好")]
-        Neo4j[("Neo4j<br/>知识图谱")]
+        Milvus[("Milvus<br/>Vector RAG · 长期偏好")]
+        Neo4j[("Neo4j<br/>Graph RAG")]
     end
 
     Guest & User --> Nginx
@@ -196,17 +186,11 @@ flowchart TB
     Mode -->|Real| Cache
     Cache -->|命中| Result
     Cache -->|未命中| Orchestrator
-    Orchestrator --> Product & Billing & Promotion & Recommend
-    Billing -.->|State Handoff| FinOps
-    Product & Billing & Promotion & Recommend & FinOps --> Result
-    Product --> Vector & Graph
-    Billing & Promotion & FinOps --> MCP
-    Recommend --> MCP & Vector
-    Orchestrator & Product & Billing & Promotion & Recommend & FinOps --> Model
+    Orchestrator --> Agents --> Result
+    Agents --> MCP & Milvus & Neo4j
+    Orchestrator & Agents --> Model
     MCP --> MySQL
     Chat --> Redis & Milvus
-    Vector --> Milvus
-    Graph --> Neo4j
     Result --> MySQL
 
     classDef role fill:#ffffff,stroke:#ff6f9f,color:#202735,stroke-width:1.4px;
@@ -218,15 +202,14 @@ flowchart TB
     class Guest,User role;
     class Nginx,Web delivery;
     class Gateway,Auth,Session,Chat,Trace service;
-    class Mode,Demo,Cache,Orchestrator,Product,Billing,Promotion,Recommend,FinOps,Result agent;
-    class MCP,Vector,Graph,Model capability;
+    class Mode,Demo,Cache,Orchestrator,Agents,Result agent;
+    class MCP,Model capability;
     class MySQL,Redis,Milvus,Neo4j data;
     style Roles fill:#fffafd,stroke:#f5c4d5,stroke-width:1px
     style Delivery fill:#f7fcff,stroke:#aedff0,stroke-width:1px
     style Application fill:#fff9fb,stroke:#f3bfd2,stroke-width:1px
     style Runtime fill:#fffcf5,stroke:#ead49e,stroke-width:1px
-    style Capabilities fill:#f7fdfa,stroke:#b7e2d5,stroke-width:1px
-    style Infrastructure fill:#fbf9ff,stroke:#d0c8f1,stroke-width:1px
+    style Resources fill:#f8fcfb,stroke:#c4dcd8,stroke-width:1px
     linkStyle default stroke:#68717d,stroke-width:1.1px
 ~~~
 
