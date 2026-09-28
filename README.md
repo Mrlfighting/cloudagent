@@ -134,30 +134,42 @@
 
 ~~~mermaid
 flowchart TB
-    subgraph Client["访问与展示层"]
+    subgraph Roles["访问角色"]
         direction LR
-        Browser([桌面端 / 移动端浏览器])
-        Web["Vue 3 + TypeScript<br/>Element Plus · 响应式布局"]
-        Nginx["Nginx<br/>静态资源 · API 反向代理"]
+        Guest([未登录用户])
+        User([登录用户])
     end
 
-    subgraph API["应用服务层 · FastAPI"]
-        direction LR
+    subgraph Delivery["接入与展示层"]
+        direction TB
+        Nginx["Nginx · HTTP<br/>静态资源与 /api 反向代理"]
+        Web["Vue 3 + TypeScript<br/>Element Plus · 响应式聊天界面"]
+    end
+
+    subgraph Application["应用服务层 · FastAPI"]
+        direction TB
+        Gateway["REST API / SSE<br/>JWT 鉴权 · 会话归属校验"]
         Auth["认证服务<br/>JWT · Refresh Token"]
         Session["会话服务<br/>历史恢复 · 软删除"]
-        Chat["聊天服务<br/>SSE · 异常降级"]
+        Chat["聊天服务<br/>流式输出 · 异常降级"]
         Trace["Trace 服务<br/>阶段 · 路由 · 耗时"]
     end
 
     subgraph Runtime["Agent 运行层 · LangGraph"]
         direction TB
-        Demo["Demo Router<br/>确定性离线路由"]
-        Cache["Semantic Cache<br/>相似问题复用"]
+        Mode{"Demo / Real<br/>运行模式"}
+        Demo["Demo Router<br/>确定性离线回答"]
+        Cache{"Semantic Cache<br/>是否命中"}
         Orchestrator["Orchestrator<br/>意图识别与任务调度"]
-        Agents["专业 Agent<br/>Product · Billing · Promotion<br/>Recommendation · FinOps"]
+        Product["Product<br/>知识问答"]
+        Billing["Billing<br/>订单与资源"]
+        Promotion["Promotion<br/>推广材料"]
+        Recommend["Recommendation<br/>产品选型"]
+        FinOps["FinOps<br/>资源优化"]
+        Result["回答汇聚<br/>消息持久化 · SSE 输出"]
     end
 
-    subgraph Tools["工具与知识层"]
+    subgraph Capabilities["工具与外部能力"]
         direction LR
         MCP["MCP Server<br/>订单 · 实例 · 指标 · 产品目录"]
         Vector["Vector RAG<br/>产品文档语义检索"]
@@ -165,7 +177,7 @@ flowchart TB
         Model["DashScope<br/>对话模型 · Embedding"]
     end
 
-    subgraph Data["数据与基础设施"]
+    subgraph Infrastructure["数据与基础设施"]
         direction LR
         MySQL[("MySQL 8<br/>用户 · 会话 · 业务数据 · Trace")]
         Redis[("Redis 7<br/>短期上下文 · TTL")]
@@ -173,70 +185,119 @@ flowchart TB
         Neo4j[("Neo4j<br/>知识图谱")]
     end
 
-    Browser --> Web --> Nginx
-    Nginx -->|REST / SSE| Auth & Session & Chat & Trace
+    Guest & User --> Nginx
+    Nginx -->|静态资源| Web
+    Nginx -->|/api 反向代理| Gateway
+    Web -.->|REST · SSE| Gateway
+    Gateway --> Auth & Session & Chat & Trace
     Auth & Session & Trace --> MySQL
-    Chat -->|演示模式| Demo
-    Chat -->|真实模式| Cache
-    Cache -->|未命中| Orchestrator --> Agents
-    Cache -->|命中| Chat
-    Agents --> MCP & Vector & Graph & Model
+    Chat --> Mode
+    Mode -->|Demo| Demo --> Result
+    Mode -->|Real| Cache
+    Cache -->|命中| Result
+    Cache -->|未命中| Orchestrator
+    Orchestrator --> Product & Billing & Promotion & Recommend
+    Billing -.->|State Handoff| FinOps
+    Product & Billing & Promotion & Recommend & FinOps --> Result
+    Product --> Vector & Graph
+    Billing & Promotion & FinOps --> MCP
+    Recommend --> MCP & Vector
+    Orchestrator & Product & Billing & Promotion & Recommend & FinOps --> Model
     MCP --> MySQL
     Chat --> Redis & Milvus
     Vector --> Milvus
     Graph --> Neo4j
-    Demo --> Chat
-    Agents --> Chat
-    Chat --> MySQL
+    Result --> MySQL
 
-    classDef client fill:#eefaff,stroke:#55b8d0,color:#202735,stroke-width:1.5px;
-    classDef service fill:#fff4f8,stroke:#e879a4,color:#202735,stroke-width:1.5px;
-    classDef agent fill:#fff8e8,stroke:#d9a441,color:#202735,stroke-width:1.5px;
-    classDef tool fill:#f0fbf7,stroke:#54ae91,color:#202735,stroke-width:1.5px;
-    classDef data fill:#f5f1ff,stroke:#8b7bd4,color:#202735,stroke-width:1.5px;
-    class Browser,Web,Nginx client;
-    class Auth,Session,Chat,Trace service;
-    class Demo,Cache,Orchestrator,Agents agent;
-    class MCP,Vector,Graph,Model tool;
+    classDef role fill:#ffffff,stroke:#ff6f9f,color:#202735,stroke-width:1.4px;
+    classDef delivery fill:#edf9ff,stroke:#52bde8,color:#202735,stroke-width:1.4px;
+    classDef service fill:#fff2f7,stroke:#ff6f9f,color:#202735,stroke-width:1.4px;
+    classDef agent fill:#fff8e9,stroke:#d9a441,color:#202735,stroke-width:1.4px;
+    classDef capability fill:#effbf7,stroke:#57b99a,color:#202735,stroke-width:1.4px;
+    classDef data fill:#f6f2ff,stroke:#8d7be0,color:#202735,stroke-width:1.4px;
+    class Guest,User role;
+    class Nginx,Web delivery;
+    class Gateway,Auth,Session,Chat,Trace service;
+    class Mode,Demo,Cache,Orchestrator,Product,Billing,Promotion,Recommend,FinOps,Result agent;
+    class MCP,Vector,Graph,Model capability;
     class MySQL,Redis,Milvus,Neo4j data;
-    style Client fill:#f8fdff,stroke:#b9e4ef
-    style API fill:#fff9fb,stroke:#f1c4d4
-    style Runtime fill:#fffcf4,stroke:#ecd59d
-    style Tools fill:#f8fdfb,stroke:#bde2d5
-    style Data fill:#fbf9ff,stroke:#d3cbef
+    style Roles fill:#fffafd,stroke:#f5c4d5,stroke-width:1px
+    style Delivery fill:#f7fcff,stroke:#aedff0,stroke-width:1px
+    style Application fill:#fff9fb,stroke:#f3bfd2,stroke-width:1px
+    style Runtime fill:#fffcf5,stroke:#ead49e,stroke-width:1px
+    style Capabilities fill:#f7fdfa,stroke:#b7e2d5,stroke-width:1px
+    style Infrastructure fill:#fbf9ff,stroke:#d0c8f1,stroke-width:1px
+    linkStyle default stroke:#68717d,stroke-width:1.1px
 ~~~
 
 ### 2. 单次聊天请求链路
 
 ~~~mermaid
 flowchart TD
-    Start([用户发送问题]) --> Auth[校验 Access Token 与会话归属]
-    Auth --> SaveUser[保存 User 消息并创建 Trace]
-    SaveUser --> Status[发送 SSE status: thinking]
-    Status --> Mode{AGENT_DEMO_MODE?}
+    subgraph Request["请求接入"]
+        direction LR
+        Start([用户发送问题])
+        Auth["校验 Access Token<br/>与会话归属"]
+        SaveUser["保存 User 消息<br/>创建 Trace"]
+        Status["SSE status<br/>正在理解问题"]
+    end
 
-    Mode -->|true| Rule[确定性规则路由]
-    Rule --> MockTool[生成本地工具结果]
+    subgraph Decision["运行模式与路由"]
+        direction TB
+        Mode{"AGENT_DEMO_MODE?"}
+        Rule["确定性规则路由<br/>本地 Mock 工具"]
+        Cache{"语义缓存命中?"}
+        Context["读取 Redis 近期消息<br/>召回 Milvus 用户偏好"]
+        Router["Orchestrator<br/>意图识别"]
+    end
 
-    Mode -->|false| Cache{语义缓存命中?}
-    Cache -->|是| Answer[复用缓存回答]
-    Cache -->|否| Context[读取 Redis 近期消息<br/>召回 Milvus 用户偏好]
-    Context --> Router[Orchestrator 意图识别]
-    Router --> Product[Product Agent]
-    Router --> Billing[Billing Agent]
-    Router --> Promotion[Promotion Agent]
-    Router --> Recommend[Recommendation Agent]
-    Billing -->|FinOps 请求| FinOps[FinOps Agent]
+    subgraph Execution["专业 Agent 执行"]
+        direction LR
+        Product["Product"]
+        Billing["Billing"]
+        Promotion["Promotion"]
+        Recommend["Recommendation"]
+        FinOps["FinOps"]
+        Tools["MCP · Vector RAG<br/>Graph RAG"]
+    end
 
-    Product & Billing & Promotion & Recommend & FinOps --> Tools[MCP / Vector RAG / Graph RAG]
-    Tools --> Answer
-    MockTool --> Answer
-    Answer --> SaveAssistant[保存 Assistant 消息<br/>完成 Trace 与耗时统计]
-    SaveAssistant --> Stream[发送 SSE content 分片]
-    Stream --> Done[发送 SSE done]
-    Auth -.异常.-> Error[发送 SSE error<br/>Trace 记录失败原因]
+    subgraph Response["持久化与流式响应"]
+        direction LR
+        Answer["生成或复用回答"]
+        SaveAssistant["保存 Assistant 消息<br/>完成 Trace 与耗时统计"]
+        Stream["SSE content<br/>增量输出"]
+        Done([SSE done])
+        Error["SSE error<br/>记录失败原因"]
+    end
+
+    Start --> Auth --> SaveUser --> Status --> Mode
+    Mode -->|true| Rule --> Answer
+    Mode -->|false| Cache
+    Cache -->|命中| Answer
+    Cache -->|未命中| Context --> Router
+    Router --> Product & Billing & Promotion & Recommend
+    Billing -.->|FinOps 请求| FinOps
+    Product & Billing & Promotion & Recommend & FinOps --> Tools --> Answer
+    Answer --> SaveAssistant --> Stream --> Done
+    Auth -.异常.-> Error
     Router -.异常.-> Error
     Tools -.异常.-> Error
+
+    classDef access fill:#edf9ff,stroke:#52bde8,color:#202735,stroke-width:1.4px;
+    classDef decision fill:#fff8e9,stroke:#d9a441,color:#202735,stroke-width:1.4px;
+    classDef agent fill:#fff2f7,stroke:#ff6f9f,color:#202735,stroke-width:1.4px;
+    classDef response fill:#effbf7,stroke:#57b99a,color:#202735,stroke-width:1.4px;
+    classDef error fill:#fff0f0,stroke:#e26b6b,color:#7a2525,stroke-width:1.4px;
+    class Start,Auth,SaveUser,Status access;
+    class Mode,Rule,Cache,Context,Router decision;
+    class Product,Billing,Promotion,Recommend,FinOps,Tools agent;
+    class Answer,SaveAssistant,Stream,Done response;
+    class Error error;
+    style Request fill:#f7fcff,stroke:#aedff0,stroke-width:1px
+    style Decision fill:#fffcf5,stroke:#ead49e,stroke-width:1px
+    style Execution fill:#fff9fb,stroke:#f3bfd2,stroke-width:1px
+    style Response fill:#f7fdfa,stroke:#b7e2d5,stroke-width:1px
+    linkStyle default stroke:#68717d,stroke-width:1.1px
 ~~~
 
 ## 五、Agent 设计
